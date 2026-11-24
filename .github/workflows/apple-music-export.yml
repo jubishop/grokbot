@@ -1,0 +1,47 @@
+name: Apple Music library export
+
+on:
+  schedule:
+    - cron: "30 16 * * 1"  # Mondays 16:30 UTC = 8:30 AM PST (9:30 AM PDT)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apple-music-export
+  cancel-in-progress: false
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install --quiet requests cryptography
+
+      - name: Export library artists
+        env:
+          APPLE_MUSIC_P8: ${{ secrets.APPLE_MUSIC_P8 }}
+          APPLE_MUSIC_KEY_ID: ${{ secrets.APPLE_MUSIC_KEY_ID }}
+          APPLE_MUSIC_TEAM_ID: ${{ secrets.APPLE_MUSIC_TEAM_ID }}
+          APPLE_MUSIC_USER_TOKEN: ${{ secrets.APPLE_MUSIC_USER_TOKEN }}
+        run: python apple-music/export_library.py
+
+      - name: Commit if the artist list changed
+        run: |
+          if git diff --quiet -- apple-music/library-artists.txt && git ls-files --error-unmatch apple-music/library-artists.txt >/dev/null 2>&1; then
+            echo "Artist list unchanged; nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898+github-actions[bot]@users.noreply.github.com"
+          git add apple-music/library-artists.txt apple-music/last-updated
+          git commit -m "Update Apple Music library artists ($(cut -f1 apple-music/last-updated))"
+          git push
